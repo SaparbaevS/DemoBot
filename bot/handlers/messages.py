@@ -4,11 +4,11 @@ from aiogram import F, Router
 from aiogram.types import Message
 
 from bot.services.database import save_activity
+from bot.utils.timezone import now_db, now_str
 
 router = Router()
 logger = logging.getLogger(__name__)
 
-# Ignore very short inputs — likely accidental taps
 _MIN_LENGTH = 5
 
 
@@ -16,19 +16,21 @@ _MIN_LENGTH = 5
 async def handle_text(message: Message) -> None:
     text = (message.text or "").strip()
 
-    if len(text) < _MIN_LENGTH:
+    # Skip commands and very short inputs
+    if len(text) < _MIN_LENGTH or text.startswith("/"):
         return
 
     user_id  = message.from_user.id
     username = message.from_user.username or message.from_user.full_name
 
     try:
-        await save_activity(user_id, username, text)
+        recorded_at = now_str()
+        await save_activity(user_id, username, text, created_at=now_db())
         await message.answer(
-            f"📝 <b>Записано:</b>\n<i>{text}</i>\n\n"
+            f"📝 <b>Записано в {recorded_at}:</b>\n<i>{text}</i>\n\n"
             "Отправьте /analyze для анализа дня.",
             parse_mode="HTML",
         )
     except Exception:
-        logger.exception("Text handler error for user %s", user_id)
+        logger.exception("Text handler error user=%s", user_id)
         await message.answer("❌ Не удалось сохранить запись. Попробуйте ещё раз.")

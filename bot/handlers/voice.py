@@ -7,6 +7,8 @@ from google.genai.errors import ClientError, ServerError
 
 from bot.services.database import save_activity
 from bot.services.gemini_service import transcribe_voice
+from bot.utils.error_handler import gemini_error_message
+from bot.utils.timezone import now_db, now_str
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -16,10 +18,11 @@ logger = logging.getLogger(__name__)
 async def handle_voice(message: Message, bot: Bot) -> None:
     user_id  = message.from_user.id
     username = message.from_user.username or message.from_user.full_name
-
-    status = await message.answer("🎤 Распознаю голосовое сообщение...")
+    status   = None
 
     try:
+        status = await message.answer("🎤 Распознаю голосовое сообщение...")
+
         file = await bot.get_file(message.voice.file_id)
         buf  = io.BytesIO()
         await bot.download_file(file.file_path, buf)
@@ -27,38 +30,24 @@ async def handle_voice(message: Message, bot: Bot) -> None:
         text = await transcribe_voice(buf.getvalue())
 
         if not text:
-            await status.edit_text(
-                "❌ Не удалось распознать речь. Попробуйте говорить чётче."
-            )
+            await status.edit_text("❌ Не удалось распознать речь. Попробуйте говорить чётче.")
             return
 
-        await save_activity(user_id, username, text)
+        recorded_at = now_str()
+        await save_activity(user_id, username, text, created_at=now_db())
 
         await status.edit_text(
-            f"✅ <b>Записано:</b>\n<i>{text}</i>\n\n"
+            f"✅ <b>Записано в {recorded_at}:</b>\n<i>{text}</i>\n\n"
             "Продолжайте рассказывать о своём дне! "
             "Когда будете готовы — отправьте /analyze",
             parse_mode="HTML",
         )
 
-    except ServerError as e:
-        if "503" in str(e) or "UNAVAILABLE" in str(e):
-            await status.edit_text(
-                "⏳ <b>Серверы Gemini перегружены.</b>\n\nПодождите 30–60 секунд и отправьте сообщение снова.",
-                parse_mode="HTML",
-            )
-        else:
-            logger.exception("Gemini server error for user %s", user_id)
-            await status.edit_text("❌ Ошибка сервера Gemini. Попробуйте ещё раз.")
-    except ClientError as e:
-        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-            await status.edit_text(
-                "⚠️ <b>Квота Gemini API исчерпана.</b>\n\nFree tier: 5 запросов/мин, 20 запросов/день.",
-                parse_mode="HTML",
-            )
-        else:
-            logger.exception("Gemini API error for user %s", user_id)
-            await status.edit_text("❌ Ошибка Gemini API. Попробуйте ещё раз.")
+    except (ServerError, ClientError) as e:
+        msg   = gemini_error_message(e, context="voice", user_id=user_id)
+        reply = status.edit_text if status else message.answer
+        await reply(msg, parse_mode="HTML")
     except Exception:
-        logger.exception("Voice handler error for user %s", user_id)
-        await status.edit_text("❌ Ошибка при обработке голосового сообщения. Попробуйте ещё раз.")
+        logger.exception("Unexpected error in voice handler user=%s", user_id)
+        reply = status.edit_text if status else message.answer
+        await reply("❌ Ошибка при обработке голосового сообщения. Попробуйте ещё раз.")

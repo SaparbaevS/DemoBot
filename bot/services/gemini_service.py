@@ -85,14 +85,23 @@ _ANALYZE_PROMPT = """\
 You are a personal activity analyst. Analyze the following daily activity logs
 and extract each activity as a structured JSON array.
 
+Each log line has the format: [YYYY-MM-DD HH:MM:SS] <user message>
+The timestamp in brackets is the EXACT moment the user sent the message.
+
 Activity logs (in chronological order):
 {logs}
 
 Rules:
 - Each array item must have exactly these fields:
-    "time"     : string  — time mentioned (e.g. "08:00", "утро", "вечер"). Use "—" if unknown.
+    "time"     : string  — ALWAYS fill with a time in "HH:MM" format.
+                           Priority: (1) time explicitly stated by the user,
+                           (2) time from the log timestamp [HH:MM:SS].
+                           Never use "—", never leave unknown.
     "activity" : string  — short description in Russian (max 40 chars)
-    "duration" : integer | null — duration in minutes; null if not mentioned
+    "duration" : integer | null — duration in MINUTES, calculated automatically:
+                           = timestamp of the NEXT activity − timestamp of this activity.
+                           If the user explicitly mentions a duration, use that instead.
+                           For the LAST activity of the day, use null (end time unknown).
     "category" : one of "сон", "еда", "работа", "отдых", "спорт", "транспорт", "общение", "другое"
 - Keep the language consistent with the logs (Russian preferred).
 - Return ONLY a valid JSON array, nothing else.

@@ -6,11 +6,9 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from google.genai.errors import ClientError, ServerError
 
-from bot.services.database import (
-    clear_today_activities,
-    get_today_activities,
-)
+from bot.services.database import clear_today_activities, get_today_activities
 from bot.services.gemini_service import analyze_daily_activities
+from bot.utils.error_handler import gemini_error_message
 from bot.utils.formatter import format_summary, format_table
 
 router = Router()
@@ -23,6 +21,7 @@ _WELCOME = (
     "💬 Также можно просто написать текстом что вы делали.\n\n"
     "📋 <b>Команды:</b>\n"
     "/analyze — анализ сегодняшних активностей в виде таблицы\n"
+    "/history — история за вчера и позавчера\n"
     "/clear   — очистить записи за сегодня\n"
     "/help    — справка"
 )
@@ -32,7 +31,8 @@ _HELP = (
     "1️⃣ <b>Записывайте активности голосом или текстом</b>\n"
     "   Пример: «Я встал в 8 утра, выпил чай и пошёл на работу»\n\n"
     "2️⃣ <b>Отправляйте несколько сообщений</b> в течение дня — бот копит историю\n\n"
-    "3️⃣ <b>/analyze</b> — получите анализ дня в виде таблицы\n\n"
+    "3️⃣ <b>/analyze</b> — получите анализ дня в виде таблицы\n"
+    "4️⃣ <b>/history</b> — посмотрите вчера или позавчера\n\n"
     "💡 <i>Совет: упоминайте время и продолжительность действий для точного анализа</i>"
 )
 
@@ -50,9 +50,11 @@ async def cmd_help(message: Message) -> None:
 @router.message(Command("analyze"))
 async def cmd_analyze(message: Message) -> None:
     user_id = message.from_user.id
-    thinking = await message.answer("🔍 Анализирую ваш день, подождите...")
+    thinking = None
 
     try:
+        thinking = await message.answer("🔍 Анализирую ваш день, подождите...")
+
         raw_activities = await get_today_activities(user_id)
 
         if not raw_activities:
@@ -75,44 +77,22 @@ async def cmd_analyze(message: Message) -> None:
         today_label = date.today().strftime("%d.%m.%Y")
         table   = format_table(structured)
         summary = format_summary(structured, today_label)
+        full    = f"{summary}\n\n{table}"
 
-        full_text = f"{summary}\n\n{table}"
-
-        # Telegram limit is 4096 chars — send as two messages if needed
-        if len(full_text) <= 4096:
-            await thinking.edit_text(full_text, parse_mode="HTML")
+        if len(full) <= 4096:
+            await thinking.edit_text(full, parse_mode="HTML")
         else:
             await thinking.edit_text(summary, parse_mode="HTML")
             await message.answer(table, parse_mode="HTML")
 
-    except ServerError as e:
-        if "503" in str(e) or "UNAVAILABLE" in str(e):
-            await thinking.edit_text(
-                "⏳ <b>Серверы Gemini перегружены.</b>\n\nПодождите 30–60 секунд и попробуйте /analyze снова.",
-                parse_mode="HTML",
-            )
-        else:
-            logger.exception("Gemini server error in /analyze for user %s", user_id)
-            await thinking.edit_text("❌ Ошибка сервера Gemini. Попробуйте позже.")
-    except ClientError as e:
-        err = str(e)
-        if "429" in err or "RESOURCE_EXHAUSTED" in err:
-            await thinking.edit_text(
-                "⚠️ <b>Квота Gemini API исчерпана.</b>\n\nFree tier: 5 запросов/мин, 20 запросов/день.",
-                parse_mode="HTML",
-            )
-        elif "404" in err or "NOT_FOUND" in err:
-            logger.error("Gemini model not found: %s", err)
-            await thinking.edit_text(
-                "⚠️ <b>Модель Gemini недоступна.</b>\n\nНапишите разработчику.",
-                parse_mode="HTML",
-            )
-        else:
-            logger.exception("Gemini API error in /analyze for user %s", user_id)
-            await thinking.edit_text("❌ Ошибка Gemini API. Попробуйте позже.")
+    except (ServerError, ClientError) as e:
+        msg = gemini_error_message(e, context="analyze", user_id=user_id)
+        reply = thinking.edit_text if thinking else message.answer
+        await reply(msg, parse_mode="HTML")
     except Exception:
-        logger.exception("Error in /analyze for user %s", user_id)
-        await thinking.edit_text("❌ Произошла ошибка при анализе. Попробуйте позже.")
+        logger.exception("Unexpected error in /analyze user=%s", user_id)
+        reply = thinking.edit_text if thinking else message.answer
+        await reply("❌ Произошла ошибка при анализе. Попробуйте позже.")
 
 
 @router.message(Command("clear"))

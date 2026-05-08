@@ -1,6 +1,5 @@
 import aiosqlite
 from datetime import date
-from typing import Optional
 
 DB_PATH = "activities.db"
 
@@ -21,12 +20,20 @@ async def init_db() -> None:
         await db.commit()
 
 
-async def save_activity(user_id: int, username: str, raw_text: str) -> None:
+async def save_activity(
+    user_id: int, username: str, raw_text: str, created_at: str | None = None
+) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO activities (user_id, username, raw_text) VALUES (?, ?, ?)",
-            (user_id, username, raw_text),
-        )
+        if created_at:
+            await db.execute(
+                "INSERT INTO activities (user_id, username, raw_text, created_at) VALUES (?, ?, ?, ?)",
+                (user_id, username, raw_text, created_at),
+            )
+        else:
+            await db.execute(
+                "INSERT INTO activities (user_id, username, raw_text) VALUES (?, ?, ?)",
+                (user_id, username, raw_text),
+            )
         await db.commit()
 
 

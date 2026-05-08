@@ -6,7 +6,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from bot.handlers import commands, messages, voice
+from bot.handlers import commands, history, messages, voice
 from bot.services.database import init_db
 from config import settings
 
@@ -25,6 +25,7 @@ async def main() -> None:
 
     # Order matters: commands first, then voice, then plain text
     dp.include_router(commands.router)
+    dp.include_router(history.router)
     dp.include_router(voice.router)
     dp.include_router(messages.router)
 

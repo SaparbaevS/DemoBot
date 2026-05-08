@@ -1,3 +1,5 @@
+import unicodedata
+
 CATEGORY_EMOJI: dict[str, str] = {
     "сон":        "😴",
     "еда":        "🍽",
@@ -10,9 +12,23 @@ CATEGORY_EMOJI: dict[str, str] = {
 }
 
 
+def _visual_width(text: str) -> int:
+    """Return the visual width of a string in a monospace context.
+    Wide/fullwidth chars (e.g. CJK) count as 2; everything else as 1.
+    Emoji are intentionally excluded from table cells to avoid width ambiguity.
+    """
+    width = 0
+    for ch in text:
+        if unicodedata.east_asian_width(ch) in ("W", "F"):
+            width += 2
+        else:
+            width += 1
+    return width
+
+
 def _pad(text: str, width: int) -> str:
-    # CJK / emoji chars are wider — simple left-pad for ASCII-safe columns
-    return text.ljust(width)
+    """Pad text to visual width with spaces."""
+    return text + " " * max(0, width - _visual_width(text))
 
 
 def format_table(activities: list[dict]) -> str:
@@ -24,19 +40,18 @@ def format_table(activities: list[dict]) -> str:
     rows: list[list[str]] = []
 
     for item in activities:
-        time     = str(item.get("time") or "—")
+        time_val = str(item.get("time") or "—")
         activity = str(item.get("activity") or "—")
         dur_val  = item.get("duration")
         duration = f"{dur_val} мин" if dur_val else "—"
         cat      = str(item.get("category") or "другое")
-        emoji    = CATEGORY_EMOJI.get(cat, "📌")
-        rows.append([time, activity, duration, f"{emoji} {cat}"])
+        rows.append([time_val, activity, duration, cat])
 
-    # Column widths
-    widths = [len(h) for h in headers]
+    # Column widths based on visual width (emoji = 2 chars)
+    widths = [_visual_width(h) for h in headers]
     for row in rows:
         for i, cell in enumerate(row):
-            widths[i] = max(widths[i], len(cell))
+            widths[i] = max(widths[i], _visual_width(cell))
 
     def make_row(cells: list[str]) -> str:
         parts = [_pad(c, widths[i]) for i, c in enumerate(cells)]
@@ -54,7 +69,7 @@ def format_table(activities: list[dict]) -> str:
 
 
 def format_summary(activities: list[dict], day_label: str) -> str:
-    total = len(activities)
+    total     = len(activities)
     total_min = sum(a.get("duration") or 0 for a in activities)
 
     cat_counts: dict[str, int] = {}
@@ -65,7 +80,7 @@ def format_summary(activities: list[dict], day_label: str) -> str:
     lines = [f"📅 <b>Анализ дня — {day_label}</b>", ""]
 
     if total_min:
-        h, m = divmod(total_min, 60)
+        h, m     = divmod(total_min, 60)
         time_str = f"{h} ч {m} мин" if h else f"{m} мин"
         lines.append(f"⏱ Суммарное время: <b>{time_str}</b>")
 
