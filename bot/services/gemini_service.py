@@ -102,7 +102,10 @@ Rules:
                            = timestamp of the NEXT activity − timestamp of this activity.
                            If the user explicitly mentions a duration, use that instead.
                            For the LAST activity of the day, use null (end time unknown).
-    "category" : one of "сон", "еда", "работа", "отдых", "спорт", "транспорт", "общение", "другое"
+    "category" : one of "сон", "еда", "работа", "отдых", "спорт", "транспорт", "общение", "покупка", "другое"
+    "amount"   : number | null — money spent in this activity (in sum/сум).
+                           Extract from phrases like "купил за 5000", "заплатил 12000",
+                           "потратил 50 000", "стоило 8500". null if no purchase.
 - Keep the language consistent with the logs (Russian preferred).
 - Return ONLY a valid JSON array, nothing else.
 """
